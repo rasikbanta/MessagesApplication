@@ -3,17 +3,27 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.ServiceBus;
+using Microsoft.Azure.KeyVault;
+using Microsoft.IdentityModel.Clients.ActiveDirectory;
 
 namespace AzureServiceBus_Sender
 {
     class Program
     {
-        const string ServiceBusConnectionString = "Endpoint=sb://rastest1.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=Xo9gAoO495g2253GmQ705+lXBq7JEUWww0RSVX+Uyuo=";
+        //const string serviceBusConnStringFromVault;
+        const string APP_CLIENT_ID = "ed0cb3f8-5b13-4e17-be3f-e621c8e290e8";
+        const string APP_CLIENT_SECRET = "7E=Tjzf67iE-ZttTbi3JJsh@hbOTTfE_";
+        const string KEY_VAULT_URI = "https://rbkeyvault-sb.vault.azure.net/";
         const string QueueName = "test-ras-queue";
         static IQueueClient queueClient;
+        static IKeyVaultClient keyVaultClient;
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
+            //get the key from keyVault
+            //keyVaultClient = new KeyVaultClient()
+
+            string connectionStringFromVault = await GetConnectionStringSecret();
             while (true)
             {
                 Console.WriteLine("press 1 to send messages, 2 to receive messages, 3 to exit");
@@ -22,11 +32,11 @@ namespace AzureServiceBus_Sender
                     case "1":
                         Console.WriteLine("You chose to send messages. Write Message and press enter");
                         string strMessage = Console.ReadLine();
-                        MainAsyncSendMessages(strMessage).GetAwaiter().GetResult();
+                        MainAsyncSendMessages(strMessage, connectionStringFromVault).GetAwaiter().GetResult();
                         break;
                     case "2":
                         Console.WriteLine("You chose to receive messages");
-                        MainAsyncReceiveMesssages().GetAwaiter().GetResult();
+                        MainAsyncReceiveMesssages(connectionStringFromVault).GetAwaiter().GetResult();
                         break;
                     case "3":
                         Console.WriteLine("You chose to exit");
@@ -40,10 +50,37 @@ namespace AzureServiceBus_Sender
         }
 
         /// <summary>
+        /// Gets the connection string value from KeyVault
+        /// </summary>
+        /// <returns></returns>
+        static async Task<string> GetConnectionStringSecret()
+        {
+            var kvc = new KeyVaultClient(new KeyVaultClient.AuthenticationCallback(
+                async (string authority, string resource, string scope) => {
+                    var authContext = new AuthenticationContext(authority);
+                    var credential = new ClientCredential(APP_CLIENT_ID, APP_CLIENT_SECRET);
+
+                    AuthenticationResult result = await authContext.AcquireTokenAsync(resource, credential);
+
+                    if (result == null)
+                    {
+                        throw new InvalidOperationException("Failed to retrieve secret");
+                    }
+                    return result.AccessToken;
+                }
+            ));
+
+
+            var secretBundle = await kvc.GetSecretAsync(KEY_VAULT_URI, "ServiceBusConnString1");
+
+            return secretBundle.Value;
+        }
+
+        /// <summary>
         /// Send Messages to Queue
         /// </summary>
         /// <returns></returns>
-        static async Task MainAsyncSendMessages(string message)
+        static async Task MainAsyncSendMessages(string message, string ServiceBusConnectionString)
         {
             queueClient = new QueueClient(ServiceBusConnectionString, QueueName);
 
@@ -59,7 +96,7 @@ namespace AzureServiceBus_Sender
         /// Receive Messages from Queue
         /// </summary>
         /// <returns></returns>
-        static async Task MainAsyncReceiveMesssages()
+        static async Task MainAsyncReceiveMesssages(string ServiceBusConnectionString)
         {
             queueClient = new QueueClient(ServiceBusConnectionString, QueueName);
 
